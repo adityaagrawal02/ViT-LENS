@@ -96,8 +96,18 @@ def get_imagenet_labels() -> List[str]:
     return _IMAGENET_LABELS_CACHE
 
 
-def format_class_label(class_idx: int) -> str:
-    """Returns human-readable name formatted with class index."""
+def format_class_label(class_idx: int, class_name: Optional[str] = None) -> str:
+    """
+    Returns human-readable name formatted with class index.
+    Supports single argument: format_class_label(idx)
+    or two arguments: format_class_label(idx, class_name)
+    """
+    if class_name is not None and str(class_name).strip():
+        name = str(class_name).strip()
+        if f"(#{class_idx})" in name:
+            return name
+        return f"{name} (#{class_idx})"
+
     labels = get_imagenet_labels()
     if 0 <= class_idx < len(labels):
         name = labels[class_idx]
@@ -182,3 +192,17 @@ def overlay_heatmap_on_image(image: Image.Image,
     orig_np = np.array(image.convert("RGB"))
     blended = (alpha * colored_heatmap_uint8 + (1.0 - alpha) * orig_np).astype(np.uint8)
     return Image.fromarray(blended)
+
+
+__all__ = [
+    "seed_everything",
+    "get_device",
+    "load_config",
+    "save_json",
+    "load_json",
+    "get_imagenet_labels",
+    "format_class_label",
+    "resolve_sae_checkpoint_path",
+    "denormalize_image",
+    "overlay_heatmap_on_image",
+]

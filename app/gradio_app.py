@@ -6,10 +6,25 @@ from PIL import Image
 import gradio as gr
 import matplotlib.pyplot as plt
 
-# Ensure root directory is on path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Ensure repository root directory is placed first on sys.path
+_repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+elif sys.path[0] != _repo_root:
+    sys.path.remove(_repo_root)
+    sys.path.insert(0, _repo_root)
 
-from src.utils import format_class_label  # noqa: E402
+try:
+    from src.utils import format_class_label  # noqa: E402
+except (ImportError, AttributeError):
+    try:
+        from src import format_class_label  # noqa: E402
+    except (ImportError, AttributeError):
+        def format_class_label(class_idx: int, class_name: Optional[str] = None) -> str:  # noqa: E402
+            if class_name:
+                return f"{class_name} (#{class_idx})"
+            return f"Class #{class_idx}"
+
 from src.model_service import get_model_service, ModelService  # noqa: E402
 
 
@@ -408,6 +423,11 @@ def build_app(service: Optional[ModelService] = None) -> gr.Blocks:
         )
 
     return demo
+
+
+# Backwards-compatible aliases for Colab notebooks and external scripts
+build_gradio_app = build_app
+ViTLensApp = ViTLensGradioApp
 
 
 def main():

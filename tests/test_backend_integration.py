@@ -169,13 +169,34 @@ def test_checkpoint_validation_and_load(tmp_path):
 
 
 def test_labels_and_formatting():
-    """Test ImageNet label loader and formatting utility."""
+    """Test ImageNet label loader and formatting utility across all argument signatures."""
     labels = get_imagenet_labels()
     assert len(labels) == 1000
     assert "tench" in labels[0].lower() or "goldfish" in labels[1].lower()
 
+    # Single-argument signature
     formatted = format_class_label(0)
     assert "(#0)" in formatted
+
+    # Two-argument signature with custom label
+    formatted_custom = format_class_label(588, "tench")
+    assert formatted_custom == "tench (#588)"
+
+    # Pre-formatted string should not get duplicate (#588)
+    formatted_redundant = format_class_label(588, "tench (#588)")
+    assert formatted_redundant == "tench (#588)"
+
+    # Out of bounds index
+    formatted_oob = format_class_label(9999)
+    assert formatted_oob == "Class #9999"
+
+
+def test_gradio_app_module_import():
+    """Requirement 4: Ensure build_app can be directly imported from app.gradio_app."""
+    from app.gradio_app import build_app, build_gradio_app, ViTLensApp, ViTLensGradioApp
+    assert callable(build_app)
+    assert callable(build_gradio_app)
+    assert ViTLensApp is ViTLensGradioApp
 
 
 def test_model_service_smoke(mock_vit, mock_sae):
