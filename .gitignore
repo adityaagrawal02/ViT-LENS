@@ -1,0 +1,93 @@
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Secrets, Environment & API Keys
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.cert
+secrets.json
+credentials.json
+
+# PyTorch Weights, Checkpoints & Activation Data
+*.pt
+*.pth
+*.bin
+*.tar.gz
+*.zip
+data/activations/
+data/raw/
+data/imagenet100/
+data/prototype/
+checkpoints/*.pt
+checkpoints/*.pth
+
+# Jupyter Notebook Checkpoints & Testing Caches
+.ipynb_checkpoints*/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs & Temporary Files
+*.log
+*.tmp
+*.bak
+*.swp
+
+# Output Artifacts (prevent large generated binary/png commit bloat)
+outputs/features/*.png
+outputs/heatmaps/*.png
+outputs/interventions/*.json
+outputs/evaluation/*.png
+outputs/evaluation/*.json
+
+# Operating System & IDE
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Ignore all generated datasets, checkpoints, and results
+data/
+checkpoints/
+outputs/
+
+# Additional ML model and activation formats
+*.ckpt
+*.safetensors
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.parquet
+
+# Allow safe example environment files
+!.env.example
