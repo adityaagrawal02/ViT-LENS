@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 from typing import Tuple, Dict
@@ -80,6 +81,21 @@ class TopKSparseAutoencoder(nn.Module):
         """Decodes sparse feature vector back to ViT activation space."""
         return z_topk @ self.W_dec + self.b_dec
 
+    def get_decoder_direction(self, feature_id: int) -> torch.Tensor:
+        """
+        Calculates the decoder direction for feature i exactly as:
+            d_i = sae.decode(one_hot_i) - sae.decode(zero_latent)
+        This formulation explicitly handles any decoder bias.
+        """
+        device = self.W_dec.device
+        dtype = self.W_dec.dtype
+        with torch.no_grad():
+            one_hot = torch.zeros(1, self.d_sae, device=device, dtype=dtype)
+            one_hot[0, feature_id] = 1.0
+            zero_latent = torch.zeros(1, self.d_sae, device=device, dtype=dtype)
+            d_i = self.decode(one_hot) - self.decode(zero_latent)
+            return d_i.squeeze(0)
+
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
         """
         Forward pass through TopK SAE.
@@ -142,3 +158,58 @@ class TopKSparseAutoencoder(nn.Module):
             self.W_enc.data[:, dead_idx] = norm_err
             self.b_enc.data[dead_idx] = 0.0
             self.steps_since_activation[dead_idx] = 0
+
+    @classmethod
+    def load_from_checkpoint(cls,
+                             checkpoint_path: str,
+                             device: torch.device = torch.device("cpu"),
+                             expected_d_in: int = 768,
+                             expected_d_sae: int = 3072,
+                             expected_top_k: int = 32) -> "TopKSparseAutoencoder":
+        """
+        Loads and validates final SAE weights from checkpoint dictionary.
+        Supports 'model_state_dict', 'sae_state_dict', or root state_dict formats.
+        """
+        if not os.path.exists(checkpoint_path):
+            raise FileNotFoundError(
+                f"SAE checkpoint not found at: {checkpoint_path}\n"
+                "Please verify Google Drive is mounted or set VIT_LENS_SAE_CHECKPOINT."
+            )
+
+        ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
+
+        # Verify config if present
+        cfg = ckpt.get("config", {})
+        d_in = cfg.get("d_in", expected_d_in)
+        d_sae = cfg.get("d_sae", expected_d_sae)
+        top_k = cfg.get("top_k", expected_top_k)
+
+        if d_in != expected_d_in or d_sae != expected_d_sae or top_k != expected_top_k:
+            raise ValueError(
+                f"Checkpoint config mismatch: got (d_in={d_in}, d_sae={d_sae}, top_k={top_k}), "
+                f"expected (d_in={expected_d_in}, d_sae={expected_d_sae}, top_k={expected_top_k})"
+            )
+
+        sae = cls(d_in=d_in, d_sae=d_sae, top_k=top_k)
+
+        # Extract state dict
+        if "model_state_dict" in ckpt:
+            state_dict = ckpt["model_state_dict"]
+        elif "sae_state_dict" in ckpt:
+            state_dict = ckpt["sae_state_dict"]
+        elif "state_dict" in ckpt:
+            state_dict = ckpt["state_dict"]
+        else:
+            state_dict = ckpt
+
+        # Filter out any unexpected prefix
+        clean_state = {}
+        for k, v in state_dict.items():
+            clean_k = k.replace("sae.", "").replace("model.", "")
+            clean_state[clean_k] = v
+
+        sae.load_state_dict(clean_state, strict=False)
+        sae.to(device)
+        sae.eval()
+        sae.normalize_decoder()
+        return sae

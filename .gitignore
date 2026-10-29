@@ -76,9 +76,13 @@ desktop.ini
 *.sublime-workspace
 
 # Ignore all generated datasets, checkpoints, and results
-data/
+data/*
+!data/samples/
 checkpoints/
-outputs/
+outputs/*
+!outputs/features/
+outputs/features/*
+!outputs/features/candidate_labels.json
 
 # Additional ML model and activation formats
 *.ckpt

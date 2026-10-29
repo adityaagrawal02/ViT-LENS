@@ -6,6 +6,9 @@ import torch
 import numpy as np
 from PIL import Image
 import matplotlib.cm as cm
+from typing import List, Optional
+
+_IMAGENET_LABELS_CACHE: Optional[List[str]] = None
 
 
 def seed_everything(seed: int = 42) -> None:
@@ -37,9 +40,9 @@ def get_device(preferred: str = "auto") -> torch.device:
 def load_config(config_path: str = "config.yaml") -> dict:
     """Load configuration YAML file."""
     if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Configuration file not found: {config_path}")
+        return {}
     with open(config_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        return yaml.safe_load(f) or {}
 
 
 def save_json(data: dict, filepath: str) -> None:
@@ -55,6 +58,82 @@ def load_json(filepath: str) -> dict:
         raise FileNotFoundError(f"JSON file not found: {filepath}")
     with open(filepath, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def get_imagenet_labels() -> List[str]:
+    """
+    Returns standard 1,000 ImageNet-1K human-readable class names.
+    Cached in memory after first retrieval.
+    """
+    global _IMAGENET_LABELS_CACHE
+    if _IMAGENET_LABELS_CACHE is not None:
+        return _IMAGENET_LABELS_CACHE
+
+    # Attempt 1: torchvision ViT_B_16_Weights categories
+    try:
+        from torchvision.models import ViT_B_16_Weights
+        categories = ViT_B_16_Weights.DEFAULT.meta.get("categories", [])
+        if categories and len(categories) == 1000:
+            _IMAGENET_LABELS_CACHE = [str(c) for c in categories]
+            return _IMAGENET_LABELS_CACHE
+    except Exception:
+        pass
+
+    # Attempt 2: local class mapping file if present
+    mapping_path = "./data/imagenet_classes.json"
+    if os.path.exists(mapping_path):
+        try:
+            with open(mapping_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list) and len(data) == 1000:
+                    _IMAGENET_LABELS_CACHE = data
+                    return _IMAGENET_LABELS_CACHE
+        except Exception:
+            pass
+
+    # Fallback: indexed labels
+    _IMAGENET_LABELS_CACHE = [f"Class #{i}" for i in range(1000)]
+    return _IMAGENET_LABELS_CACHE
+
+
+def format_class_label(class_idx: int) -> str:
+    """Returns human-readable name formatted with class index."""
+    labels = get_imagenet_labels()
+    if 0 <= class_idx < len(labels):
+        name = labels[class_idx]
+        return f"{name} (#{class_idx})"
+    return f"Class #{class_idx}"
+
+
+def resolve_sae_checkpoint_path(explicit_path: Optional[str] = None) -> str:
+    """
+    Resolves the final SAE checkpoint path according to priority:
+    1. explicit_path parameter
+    2. VIT_LENS_SAE_CHECKPOINT environment variable
+    3. config.yaml sae.checkpoint_path or sae.checkpoint_dir
+    4. Google Colab default: /content/drive/MyDrive/ViT-LENS/checkpoints/final_sae_best.pt
+    5. Local fallbacks: ./checkpoints/final_sae_best.pt or ./checkpoints/sae_checkpoint_latest.pt
+    """
+    if explicit_path and os.path.exists(explicit_path):
+        return explicit_path
+
+    env_path = os.environ.get("VIT_LENS_SAE_CHECKPOINT")
+    if env_path and os.path.exists(env_path):
+        return env_path
+
+    # Check candidates
+    candidates = [
+        env_path,
+        "/content/drive/MyDrive/ViT-LENS/checkpoints/final_sae_best.pt",
+        "./checkpoints/final_sae_best.pt",
+        "./checkpoints/sae_checkpoint_latest.pt",
+    ]
+    for c in candidates:
+        if c and os.path.exists(c):
+            return c
+
+    # Return env_path or default Colab path for informative error message
+    return env_path or "/content/drive/MyDrive/ViT-LENS/checkpoints/final_sae_best.pt"
 
 
 def denormalize_image(tensor: torch.Tensor,

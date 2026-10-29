@@ -1,0 +1,29 @@
+{
+  "588": {
+    "feature_id": 588,
+    "hypothesis": "fish-associated (tentative)",
+    "class_name": "tench / goldfish (ImageNet #0 / #1)",
+    "class_auc": 0.9397,
+    "causal_effect": "Confirmed (outperformed matched controls)",
+    "layer": "Block 7 (Residual Stream)",
+    "notes": "Tentative semantic hypothesis; reflects visual features common in aquatic organisms."
+  },
+  "1453": {
+    "feature_id": 1453,
+    "hypothesis": "English Springer-associated (tentative)",
+    "class_name": "English springer (ImageNet #217)",
+    "class_auc": 0.9958,
+    "causal_effect": "Confirmed (outperformed matched controls)",
+    "layer": "Block 7 (Residual Stream)",
+    "notes": "Tentative semantic hypothesis; activates strongly on spaniel coat/ear patterns."
+  },
+  "2077": {
+    "feature_id": 2077,
+    "hypothesis": "fish-associated (tentative)",
+    "class_name": "tench / goldfish (ImageNet #0 / #1)",
+    "class_auc": 0.9956,
+    "causal_effect": "Inconclusive (control-adjusted advantage not statistically significant)",
+    "layer": "Block 7 (Residual Stream)",
+    "notes": "High class association does NOT imply unique causality; controls exhibited similar disruption."
+  }
+}

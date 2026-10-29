@@ -17,10 +17,10 @@ dataset:
   class_mapping_path: "./data/imagenet100_to_1k_mapping.json"
 
 vit:
-  model_name: "vit_base_patch16_224" # Standard timm ViT-B/16
+  model_name: "vit_base_patch16_224.augreg_in1k" # Standard timm ViT-B/16 augreg
   pretrained: true
   num_classes: 1000
-  target_layer_idx: 7 # Intermediate transformer block (0-indexed out of 12 blocks, 7 = block 8)
+  target_layer_idx: 7 # Intermediate transformer block 7 (0-indexed out of 12 blocks)
   d_model: 768
   patch_size: 16
   num_patches: 196
@@ -37,6 +37,7 @@ sae:
   save_every_epochs: 1
   dead_feature_threshold_steps: 500 # Mark feature dead if unactivated for N steps
   resample_dead_features: false
+  checkpoint_path: "/content/drive/MyDrive/ViT-LENS/checkpoints/final_sae_best.pt"
   checkpoint_dir: "./checkpoints"
 
 extraction:

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import Tuple, Optional, Callable
+from torchvision import transforms
 
 
 class ViTHookManager:
@@ -8,6 +9,7 @@ class ViTHookManager:
     Manages PyTorch forward hooks on ViT transformer blocks for both:
     1. Read-only activation extraction
     2. Causal intervention injection (replacing/modifying residual stream activations)
+    Guarantees safe cleanup to prevent hook accumulation.
     """
     def __init__(self):
         self.hook_handle = None
@@ -46,9 +48,12 @@ class ViTHookManager:
         self.intervention_fn = fn
 
     def remove(self):
-        """Remove active hook handle."""
+        """Remove active hook handle safely."""
         if self.hook_handle is not None:
-            self.hook_handle.remove()
+            try:
+                self.hook_handle.remove()
+            except Exception:
+                pass
             self.hook_handle = None
         self.captured_activation = None
         self.intervention_fn = None
@@ -57,11 +62,12 @@ class ViTHookManager:
 class ViTModelWrapper(nn.Module):
     """
     Wrapper around pretrained Vision Transformer (ViT-B/16).
+    Defaults to timm model: vit_base_patch16_224.augreg_in1k.
     Freezes model weights, extracts logits, probabilities, and intermediate activations,
     and supports causal feature intervention via residual stream hooks.
     """
     def __init__(self,
-                 model_name: str = "vit_base_patch16_224",
+                 model_name: str = "vit_base_patch16_224.augreg_in1k",
                  pretrained: bool = True,
                  target_layer_idx: int = 7,
                  device: torch.device = torch.device("cpu"),
@@ -84,27 +90,17 @@ class ViTModelWrapper(nn.Module):
             param.requires_grad = False
 
         self._attach_hook()
+        self.eval_transform = self._build_eval_transform()
 
     def _load_model(self, model_name: str, pretrained: bool, use_torchvision: bool):
-        """Loads ViT model from torchvision or timm with reliable fallback."""
-        # Prefer torchvision when requested or for standard ViT-B/16 checkpoints
-        if model_name.lower() in ["vit_b_16", "torchvision", "vit_base_patch16_224"]:
-            if use_torchvision:
-                try:
-                    import torchvision.models as models
-                    weights = models.ViT_B_16_Weights.DEFAULT if pretrained else None
-                    model = models.vit_b_16(weights=weights)
-                    self.model_type = "torchvision"
-                    return model
-                except Exception:
-                    pass
-
+        """Loads ViT model from timm or torchvision with reliable fallback."""
         try:
             import timm
             model = timm.create_model(model_name, pretrained=pretrained)
             self.model_type = "timm"
             return model
-        except Exception as e:
+        except Exception:
+            # Fallback to torchvision vit_b_16 if timm fails or offline
             if use_torchvision:
                 try:
                     import torchvision.models as models
@@ -114,7 +110,28 @@ class ViTModelWrapper(nn.Module):
                     return model
                 except Exception:
                     return self._create_mock_vit()
-            raise e
+            return self._create_mock_vit()
+
+    def _build_eval_transform(self):
+        """Constructs exact evaluation preprocessing transform matching pretrained model."""
+        if self.model_type == "timm":
+            try:
+                import timm.data
+                config = timm.data.resolve_model_data_config(self.model)
+                return timm.data.create_transform(**config, is_training=False)
+            except Exception:
+                pass
+
+        # Standard ViT-B/16 evaluation transform
+        return transforms.Compose([
+            transforms.Resize((224, 224), interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+    def get_eval_transform(self):
+        """Returns the evaluation transform callable."""
+        return self.eval_transform
 
     def _create_mock_vit(self):
         """Creates a mock ViT architecture matching ViT-B/16 dimensions for offline testing."""
@@ -159,10 +176,8 @@ class ViTModelWrapper(nn.Module):
     def _get_target_block(self) -> nn.Module:
         """Retrieve target transformer block module based on architecture."""
         if self.model_type == "timm":
-            # In timm ViT: model.blocks[i]
             return self.model.blocks[self.target_layer_idx]
         elif self.model_type == "torchvision":
-            # In torchvision ViT: model.encoder.layers[f'encoder_layer_{i}']
             return self.model.encoder.layers[self.target_layer_idx]
         elif self.model_type == "mock":
             return self.model.blocks[self.target_layer_idx]
