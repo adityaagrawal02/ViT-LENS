@@ -175,46 +175,66 @@ For local inspection on standard hardware (including 8 GB RAM and integrated GPU
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Run complete test suite (19 tests)
+# 2. Run complete test suite (40 tests across integration, math, and UI workflows)
 pytest -v
 ```
 
-All 19 automated integration and unit tests pass cleanly:
+All 40 automated integration, intervention math, and Gradio UI regression tests pass cleanly on CPU:
 ```text
-tests/test_activation_shapes.py::test_vit_activation_shapes PASSED       [  5%]
-tests/test_activation_shapes.py::test_activation_extractor_chunking PASSED [ 10%]
-tests/test_backend_integration.py::test_block7_activation_shape PASSED   [ 15%]
-tests/test_backend_integration.py::test_cls_token_preservation PASSED    [ 21%]
-tests/test_backend_integration.py::test_spatial_grid_14x14_alignment PASSED [ 26%]
-tests/test_backend_integration.py::test_identity_intervention_exact_zero_diff PASSED [ 31%]
-tests/test_backend_integration.py::test_hook_cleanup_on_exception PASSED [ 36%]
-tests/test_backend_integration.py::test_zero_activation_feature_causes_zero_delta PASSED [ 42%]
-tests/test_backend_integration.py::test_checkpoint_validation_and_load PASSED [ 47%]
-tests/test_backend_integration.py::test_labels_and_formatting PASSED     [ 52%]
-tests/test_backend_integration.py::test_model_service_smoke PASSED       [ 57%]
-tests/test_intervention.py::test_residual_preserving_identity PASSED     [ 63%]
-tests/test_intervention.py::test_residual_preservation_math PASSED       [ 68%]
-tests/test_intervention.py::test_end_to_end_intervention_hook PASSED     [ 73%]
-tests/test_sae.py::test_sae_initialization_and_dimensions PASSED         [ 78%]
-tests/test_sae.py::test_decoder_unit_norm_constraint PASSED              [ 84%]
-tests/test_sae.py::test_topk_sparsity_guarantee PASSED                   [ 89%]
-tests/test_sae.py::test_sae_forward_and_reconstruction_shapes PASSED     [ 94%]
-tests/test_sae.py::test_dead_feature_tracking_and_resampling PASSED      [100%]
-======================= 19 passed, 1 warning in 31.89s ========================
+tests/test_activation_shapes.py::test_vit_activation_shapes PASSED
+tests/test_activation_shapes.py::test_activation_extractor_chunking PASSED
+tests/test_backend_integration.py::test_block7_activation_shape PASSED
+tests/test_backend_integration.py::test_cls_token_preservation PASSED
+tests/test_backend_integration.py::test_spatial_grid_14x14_alignment PASSED
+tests/test_backend_integration.py::test_identity_intervention_exact_zero_diff PASSED
+tests/test_backend_integration.py::test_hook_cleanup_on_exception PASSED
+tests/test_backend_integration.py::test_zero_activation_feature_causes_zero_delta PASSED
+tests/test_backend_integration.py::test_checkpoint_validation_and_load PASSED
+tests/test_backend_integration.py::test_labels_and_formatting PASSED
+tests/test_backend_integration.py::test_model_service_smoke PASSED
+tests/test_backend_integration.py::test_gradio_app_module_import PASSED
+tests/test_backend_integration.py::test_labels_and_formatting_signature PASSED
+tests/test_intervention.py::test_residual_preserving_identity PASSED
+tests/test_intervention.py::test_residual_preservation_math PASSED
+tests/test_intervention.py::test_end_to_end_intervention_hook PASSED
+tests/test_sae.py::test_sae_initialization_and_dimensions PASSED
+tests/test_sae.py::test_decoder_unit_norm_constraint PASSED
+tests/test_sae.py::test_topk_sparsity_guarantee PASSED
+tests/test_sae.py::test_sae_forward_and_reconstruction_shapes PASSED
+tests/test_sae.py::test_dead_feature_tracking_and_resampling PASSED
+tests/test_ui_workflow.py::test_sample_images_exist_and_valid PASSED
+tests/test_ui_workflow.py::test_sample_images_are_not_synthetic_placeholders PASSED
+tests/test_ui_workflow.py::test_handle_feature_selection_output_types PASSED
+tests/test_ui_workflow.py::test_handle_feature_selection_with_empty_or_none PASSED
+tests/test_ui_workflow.py::test_automatic_feature_discovery_returns_ranked_atoms PASSED
+tests/test_ui_workflow.py::test_curated_features_highlighted_properly PASSED
+tests/test_ui_workflow.py::test_heatmap_overlay_peak_patch_bounding_box PASSED
+tests/test_ui_workflow.py::test_heatmap_zero_activation_clear_message PASSED
+tests/test_ui_workflow.py::test_causal_intervention_exact_identity_alpha_1 PASSED
+tests/test_ui_workflow.py::test_causal_intervention_suppression_and_amplification PASSED
+tests/test_ui_workflow.py::test_two_panel_comparison_plot_generation PASSED
+tests/test_ui_workflow.py::test_evidence_panel_content_integrity PASSED
+tests/test_ui_workflow.py::test_all_five_sample_buttons_wired_and_switch_images PASSED
+tests/test_ui_workflow.py::test_run_pipeline_end_to_end_on_real_image PASSED
+tests/test_ui_workflow.py::test_handle_feature_selection_out_of_bounds PASSED
+tests/test_ui_workflow.py::test_device_status_banner_accuracy PASSED
+tests/test_ui_workflow.py::test_preset_alpha_buttons_update_state PASSED
+tests/test_ui_workflow.py::test_headless_colab_matplotlib_compatibility PASSED
+tests/test_ui_workflow.py::test_gradio_blocks_structure_and_ids PASSED
+tests/test_ui_workflow.py::test_app_aliases_and_exports PASSED
+======================= 40 passed in 35.12s ========================
 ```
 
 ---
 
 ## 7. Interactive Gradio Interface Sections
 
-The web application (`app/gradio_app.py`) provides an interactive interface structured into 7 sections:
-1. **Device & Checkpoint Banner**: Displays compute device (CUDA GPU vs CPU warning), model name, checkpoint loading status, and Google Drive mount guidance.
-2. **Image Input & Sample Gallery**: Upload custom images or click sample images (`sample_fish.png`, `sample_springer.png`, `sample_retriever.png`).
-3. **Model Prediction & Top-5 Probabilities**: Real forward pass through frozen ViT-B/16 returning ImageNet-1K labels, probabilities, and raw logits.
-4. **Active SAE Features Explorer**: Scans all 196 patch tokens with the TopK SAE, ranks active features, and highlights benchmark features (#588, #1453, #2077).
-5. **14×14 Spatial Patch Heatmap**: Shows raw 14×14 patch grid activation and bicubic overlay on the original image, with interpretability disclaimers.
-6. **Residual-Preserving Causal Intervention**: Slider and preset buttons ($0.0\times$ suppression, $1.0\times$ identity baseline, $2.0\times$ amplification) to execute hooked forward passes and observe logit/probability shifts.
-7. **Empirical Evidence & Scientific Findings Accordion**: Summary of verified Colab benchmarks, EV, prediction agreement, and matched-control findings.
+The web application (`app/gradio_app.py`) provides a 5-step faculty research demonstration workflow:
+1. **Step 1: Input Image & Base Prediction**: Select from authentic photographs (Tench fish, English Springer Spaniel, Golden Retriever) or upload an image. Real forward pass through frozen ViT-B/16 computes top-5 ImageNet-1K probabilities and logits.
+2. **Step 2: Discovered Active SAE Features**: Automatically extracts all 196 patch tokens of Block 7, projects through TopK SAE ($k=32$), and ranks active features by peak and sum activation. Curated benchmark features (#588, #1453, #2077) are clearly badged.
+3. **Step 3: 14×14 Spatial Localization Heatmap**: Visualizes the feature's spatial footprint across the patch grid with bicubic overlay and a high-contrast double outline pinpointing the peak 16×16 patch.
+4. **Step 4: Residual-Preserving Causal Intervention**: Test causal influence using slider $\alpha \in [0.0, 3.0]$ or quick presets ($0.0\times$ suppression, $1.0\times$ baseline, $2.0\times$ amplification). Displays side-by-side probability shifts and raw logit shifts.
+5. **Step 5: Verified Research Evidence & Empirical Benchmarks**: Detailed metrics on explained variance (~90.11%), downstream prediction agreement (93.6%), and matched-control causal validations.
 
 ---
 

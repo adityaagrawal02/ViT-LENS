@@ -5,7 +5,6 @@ import yaml
 import torch
 import numpy as np
 from PIL import Image
-import matplotlib.cm as cm
 from typing import List, Optional
 
 _IMAGENET_LABELS_CACHE: Optional[List[str]] = None
@@ -184,7 +183,12 @@ def overlay_heatmap_on_image(image: Image.Image,
     norm_resized = np.array(heatmap_img) / 255.0
 
     # Colorize using colormap
-    cmap = cm.get_cmap(colormap_name)
+    try:
+        import matplotlib
+        cmap = matplotlib.colormaps[colormap_name]
+    except Exception:
+        import matplotlib.pyplot as plt
+        cmap = plt.get_cmap(colormap_name)
     colored_heatmap = cmap(norm_resized)[:, :, :3]  # Drop alpha
     colored_heatmap_uint8 = (colored_heatmap * 255).astype(np.uint8)
 

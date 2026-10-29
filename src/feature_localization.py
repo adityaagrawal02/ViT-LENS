@@ -100,6 +100,35 @@ class FeatureLocalizer:
 
         active_patch_count = int(np.sum(heatmap_2d > 0))
 
+        # Add crisp peak-patch highlight box if feature is active
+        if max_act > 0.0:
+            from PIL import ImageDraw
+            patch_w = self.image_size // self.grid_size
+            patch_h = self.image_size // self.grid_size
+            x0 = peak_col * patch_w
+            y0 = peak_row * patch_h
+            x1 = (peak_col + 1) * patch_w
+            y1 = (peak_row + 1) * patch_h
+
+            draw_ov = ImageDraw.Draw(overlay_pil)
+            draw_ov.rectangle([x0 - 1, y0 - 1, x1 + 1, y1 + 1], outline=(0, 0, 0), width=1)
+            draw_ov.rectangle([x0, y0, x1, y1], outline=(255, 235, 59), width=2)
+
+            draw_raw = ImageDraw.Draw(raw_heatmap_pil)
+            draw_raw.rectangle([x0 - 1, y0 - 1, x1 + 1, y1 + 1], outline=(0, 0, 0), width=1)
+            draw_raw.rectangle([x0, y0, x1, y1], outline=(255, 235, 59), width=2)
+
+            spatial_desc = (
+                f"Peak Activation: {max_act:.4f} at Patch #{peak_idx} "
+                f"(Row {peak_row + 1}/14, Col {peak_col + 1}/14, highlighted in yellow) | "
+                f"Active Patches: {active_patch_count}/196 ({active_patch_count/196:.1%})"
+            )
+        else:
+            spatial_desc = (
+                f"Feature #{feature_id} is inactive on this image (Peak: 0.0000 across all 196 patches). "
+                "Because activation f_i = 0, residual causal intervention produces exact zero delta."
+            )
+
         return {
             "original_image": orig_pil,
             "raw_heatmap": raw_heatmap_pil,
@@ -114,8 +143,5 @@ class FeatureLocalizer:
             "peak_row": peak_row,
             "peak_col": peak_col,
             "has_activation": max_act > 0.0,
-            "spatial_description": (
-                f"Peak Activation: {max_act:.4f} at Patch #{peak_idx} "
-                f"(Row {peak_row + 1}/14, Col {peak_col + 1}/14) | Active Patches: {active_patch_count}/196"
-            )
+            "spatial_description": spatial_desc
         }

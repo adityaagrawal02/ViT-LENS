@@ -155,7 +155,7 @@ class ModelService:
     def get_active_features_on_image(self, image: Image.Image, top_n: int = 15) -> List[Dict[str, Any]]:
         """
         Encodes all 196 patch tokens through TopK SAE and returns the most strongly
-        activating feature IDs across the image.
+        activating feature IDs across the image, ranked by peak activation and active patch count.
         """
         if self.sae is None:
             return []
@@ -166,6 +166,7 @@ class ModelService:
             z_topk, _ = self.sae.encode(patch_acts[0])  # [196, d_sae]
 
             max_acts, _ = torch.max(z_topk, dim=0)  # [d_sae]
+            sum_acts = torch.sum(z_topk, dim=0)      # [d_sae]
             patch_counts = (z_topk > 0).sum(dim=0)  # [d_sae]
 
             active_mask = max_acts > 0
@@ -175,19 +176,32 @@ class ModelService:
         for fid in active_ids:
             fid = int(fid)
             max_val = float(max_acts[fid].item())
+            sum_val = float(sum_acts[fid].item())
             p_count = int(patch_counts[fid].item())
+            mean_val = float(sum_val / max(1, p_count))
             feat_info = self.evidence_service.get_feature_info(fid)
+
+            curated_tag = " ★ [Validated Candidate]" if feat_info.get("is_curated") else ""
+            display_text = (
+                f"Feature #{fid}{curated_tag} | Peak: {max_val:.2f} | "
+                f"Patches: {p_count}/196 | {feat_info['label']}"
+            )
+
             feature_summaries.append({
                 "feature_id": fid,
                 "peak_activation": max_val,
+                "sum_activation": sum_val,
+                "mean_activation": mean_val,
                 "active_patch_count": p_count,
                 "label": feat_info["label"],
                 "class_name": feat_info["class_name"],
-                "notes": feat_info["notes"]
+                "is_curated": feat_info.get("is_curated", False),
+                "notes": feat_info["notes"],
+                "display_text": display_text
             })
 
-        # Sort descending by peak activation
-        feature_summaries.sort(key=lambda x: x["peak_activation"], reverse=True)
+        # Rank descending primarily by peak activation, secondary by active patch count
+        feature_summaries.sort(key=lambda x: (x["peak_activation"], x["active_patch_count"]), reverse=True)
         return feature_summaries[:top_n]
 
     def localize_feature(self, image: Image.Image, feature_id: int) -> Dict[str, Any]:
@@ -196,6 +210,9 @@ class ModelService:
         """
         if self.localizer is None or self.sae is None:
             raise RuntimeError("SAE is not loaded. Cannot compute feature localization.")
+
+        if not (0 <= feature_id < self.sae.d_sae):
+            raise ValueError(f"Invalid feature ID {feature_id}. Must be between 0 and {self.sae.d_sae - 1}.")
 
         tensor = self.preprocess_image(image)
         feat_info = self.evidence_service.get_feature_info(feature_id)
@@ -216,6 +233,9 @@ class ModelService:
         """
         if self.intervenor is None or self.sae is None:
             raise RuntimeError("SAE is not loaded. Cannot execute causal intervention.")
+
+        if not (0 <= feature_id < self.sae.d_sae):
+            raise ValueError(f"Invalid feature ID {feature_id}. Must be between 0 and {self.sae.d_sae - 1}.")
 
         tensor = self.preprocess_image(image)
         result = self.intervenor.run_intervention(

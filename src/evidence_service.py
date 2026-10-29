@@ -86,14 +86,20 @@ class EvidenceService:
         """Retrieves tentative label and validated evidence for a specific feature."""
         benchmarks = self.DEFAULT_BENCHMARKS["features"]
         if feature_id in benchmarks:
-            return benchmarks[feature_id]
+            info = dict(benchmarks[feature_id])
+            info["is_curated"] = True
+            return info
 
         return {
-            "label": "Unassigned / General Dictionary Atom",
-            "class_name": "N/A",
+            "label": "Unlabeled SAE feature",
+            "class_name": "Unknown / Non-curated",
             "class_auc": None,
-            "causal_effect_status": "Untested in cohort benchmark",
+            "causal_effect_status": "Untested in historical cohort benchmark",
             "control_tested": False,
-            "notes": "Active dictionary direction discovered by TopK SAE."
+            "is_curated": False,
+            "notes": (
+                "Discovered sparse dictionary direction with unknown semantic interpretation. "
+                "Non-curated status does not prevent spatial localization or causal intervention."
+            )
         }
 
