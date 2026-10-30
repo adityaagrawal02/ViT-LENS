@@ -67,7 +67,7 @@ class ModelService:
             self._load_sae()
 
         # 3. Initialize downstream services
-        if self.is_sae_loaded and self.sae is not None:
+        if self.sae is not None:
             self.intervenor = ResidualPreservingIntervention(self.vit, self.sae)
             self.localizer = FeatureLocalizer(self.sae, self.vit)
         else:

@@ -4,7 +4,13 @@ import numpy as np
 from PIL import Image
 from typing import Tuple, Dict
 
-from src.utils import overlay_heatmap_on_image, denormalize_image
+from src.utils import (
+    denormalize_image,
+    create_discrete_patch_grid,
+    create_transparent_heatmap_overlay,
+    render_discrete_grid_with_colorbar,
+    render_overlay_with_colorbar,
+)
 
 
 class FeatureLocalizer:
@@ -16,6 +22,8 @@ class FeatureLocalizer:
     - SAE feature heatmaps display where in the image plane a learned dictionary atom activated.
     - These are distinct from Transformer attention maps (which measure inter-token routing weights).
     - Peak patch activation indicates feature presence, but does NOT prove the exact causal pixels.
+    - Learned SAE features often respond to textures, background context, or edge boundaries;
+      an activation on the background reflects the model's true representation, not a segmentation flaw.
     """
     def __init__(self,
                  sae,
@@ -72,67 +80,101 @@ class FeatureLocalizer:
                                image_input,
                                feature_id: int,
                                candidate_label: str = "Unassigned Feature",
-                               colormap_name: str = "jet",
+                               colormap_name: str = "inferno",
                                alpha: float = 0.55) -> Dict:
         """
-        Generates original image, raw heatmap, and composite blended overlay.
+        Generates original image, genuinely discrete 14x14 patch grid, and transparent overlay.
         Args:
             image_input: PIL Image or normalized PyTorch Tensor [3, 224, 224]
+            feature_id: Index of the SAE feature
+            candidate_label: Label or description of the feature
+            colormap_name: Colormap name (default: "inferno")
+            alpha: Unused legacy parameter; transparent overlays use per-patch activation weights.
         Returns:
-            Dictionary containing original PIL image, heatmap PIL, overlay PIL, and metadata.
+            Dictionary containing original PIL image, discrete grid PIL, overlay PIL, and metadata.
         """
-        from torchvision import transforms
-
         if isinstance(image_input, torch.Tensor):
             tensor_to_use = image_input if image_input.ndim == 4 else image_input.unsqueeze(0)
             orig_pil = denormalize_image(tensor_to_use[0])
         else:
-            orig_pil = image_input.convert("RGB").resize((self.image_size, self.image_size), Image.Resampling.BICUBIC)
-            normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-            tensor_to_use = normalize(transforms.ToTensor()(orig_pil)).unsqueeze(0)
+            # Use ViT evaluation transform for exact preprocessing alignment
+            eval_tf = self.vit.get_eval_transform()
+            tensor_to_use = eval_tf(image_input.convert("RGB")).unsqueeze(0)
+            orig_pil = denormalize_image(tensor_to_use[0])
 
         heatmap_2d, max_act, mean_act, peak_idx, peak_row, peak_col = self.compute_feature_map(tensor_to_use, feature_id)
-        overlay_pil = overlay_heatmap_on_image(orig_pil, heatmap_2d, colormap_name=colormap_name, alpha=alpha)
-
-        # Build raw colored heatmap image
-        blank = Image.new("RGB", (self.image_size, self.image_size), color=(0, 0, 0))
-        raw_heatmap_pil = overlay_heatmap_on_image(blank, heatmap_2d, colormap_name=colormap_name, alpha=1.0)
-
         active_patch_count = int(np.sum(heatmap_2d > 0))
 
-        # Add crisp peak-patch highlight box if feature is active
+        # 1. Genuinely discrete 14x14 patch grid (exact 224x224, nearest-neighbor tiles, gridlines, peak box)
+        discrete_grid_pil = create_discrete_patch_grid(
+            heatmap_2d=heatmap_2d,
+            colormap_name=colormap_name,
+            peak_row=peak_row if max_act > 0 else None,
+            peak_col=peak_col if max_act > 0 else None,
+            image_size=self.image_size
+        )
+
+        # 2. Transparent overlay on 224x224 input image:
+        # Inactive patches have alpha=0 (100% transparent), original image remains completely visible.
+        # Active patches glow with color proportional to activation.
+        transparent_overlay_pil = create_transparent_heatmap_overlay(
+            image=orig_pil,
+            heatmap_2d=heatmap_2d,
+            colormap_name=colormap_name,
+            smooth=False,  # Crisp patch boundaries aligned with ViT tokens
+            peak_row=peak_row if max_act > 0 else None,
+            peak_col=peak_col if max_act > 0 else None
+        )
+
+        # 3. Figures with matched numeric colorbars for detailed quantitative analysis
+        discrete_with_cbar_pil = render_discrete_grid_with_colorbar(
+            heatmap_2d=heatmap_2d,
+            peak_row=peak_row if max_act > 0 else None,
+            peak_col=peak_col if max_act > 0 else None,
+            colormap_name=colormap_name,
+            title=f"Discrete 14×14 Patch Grid (Feature #{feature_id})"
+        )
+        overlay_with_cbar_pil = render_overlay_with_colorbar(
+            overlay_pil=transparent_overlay_pil,
+            peak_val=max_act,
+            colormap_name=colormap_name,
+            title=f"Transparent Overlay on Input (Feature #{feature_id})"
+        )
+
+        # 4. Smooth bicubic overlay (for comparison)
+        smooth_overlay_pil = create_transparent_heatmap_overlay(
+            image=orig_pil,
+            heatmap_2d=heatmap_2d,
+            colormap_name=colormap_name,
+            smooth=True,
+            peak_row=peak_row if max_act > 0 else None,
+            peak_col=peak_col if max_act > 0 else None
+        )
+
         if max_act > 0.0:
-            from PIL import ImageDraw
-            patch_w = self.image_size // self.grid_size
-            patch_h = self.image_size // self.grid_size
-            x0 = peak_col * patch_w
-            y0 = peak_row * patch_h
-            x1 = (peak_col + 1) * patch_w
-            y1 = (peak_row + 1) * patch_h
-
-            draw_ov = ImageDraw.Draw(overlay_pil)
-            draw_ov.rectangle([x0 - 1, y0 - 1, x1 + 1, y1 + 1], outline=(0, 0, 0), width=1)
-            draw_ov.rectangle([x0, y0, x1, y1], outline=(255, 235, 59), width=2)
-
-            draw_raw = ImageDraw.Draw(raw_heatmap_pil)
-            draw_raw.rectangle([x0 - 1, y0 - 1, x1 + 1, y1 + 1], outline=(0, 0, 0), width=1)
-            draw_raw.rectangle([x0, y0, x1, y1], outline=(255, 235, 59), width=2)
-
             spatial_desc = (
-                f"Peak Activation: {max_act:.4f} at Patch #{peak_idx} "
-                f"(Row {peak_row + 1}/14, Col {peak_col + 1}/14, highlighted in yellow) | "
-                f"Active Patches: {active_patch_count}/196 ({active_patch_count/196:.1%})"
+                f"Peak Activation: **{max_act:.4f}** at Patch #{peak_idx} "
+                f"(Row {peak_row + 1}/14, Col {peak_col + 1}/14, yellow/black box) | "
+                f"Active Patches: **{active_patch_count}/196** ({active_patch_count/196:.1%})\n\n"
+                f"*Interpretability Note*: Learned SAE features capture dictionary representations that may "
+                f"activate on contextual regions (e.g. background, ground, or edges) rather than full object silhouettes. "
+                f"This reflects the model's true internal representations."
             )
         else:
             spatial_desc = (
-                f"Feature #{feature_id} is inactive on this image (Peak: 0.0000 across all 196 patches). "
+                f"Feature #{feature_id} is **inactive** on this image (Peak: 0.0000 across all 196 patches). "
                 "Because activation f_i = 0, residual causal intervention produces exact zero delta."
             )
 
         return {
             "original_image": orig_pil,
-            "raw_heatmap": raw_heatmap_pil,
-            "overlay_image": overlay_pil,
+            "raw_heatmap": discrete_grid_pil,              # Genuinely discrete 14x14 grid (224, 224)
+            "discrete_grid": discrete_grid_pil,            # Explicit alias (224, 224)
+            "overlay_image": transparent_overlay_pil,      # Transparent overlay on input (224, 224)
+            "overlay_plain": transparent_overlay_pil,      # Alias
+            "discrete_with_cbar": discrete_with_cbar_pil,  # Standalone figure with colorbar
+            "overlay_with_cbar": overlay_with_cbar_pil,    # Standalone figure with colorbar
+            "smooth_overlay": smooth_overlay_pil,          # Smooth bicubic overlay (224, 224)
             "heatmap_2d": heatmap_2d,
             "feature_id": feature_id,
             "candidate_label": candidate_label,

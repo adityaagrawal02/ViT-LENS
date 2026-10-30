@@ -436,24 +436,34 @@ class ViTLensGradioApp:
         feat_info = self.service.evidence_service.get_feature_info(feature_id)
         max_act = loc_res["max_activation"]
         p_count = loc_res["active_patch_count"]
+        mean_act = loc_res.get("mean_activation", 0.0)
+        peak_row = loc_res.get("peak_row", 0)
+        peak_col = loc_res.get("peak_col", 0)
+        peak_idx = loc_res.get("peak_patch_idx", 0)
 
         if max_act > 0:
-            act_str = f"Active across **{p_count}/196 patches** ({p_count/196:.1%}) | Peak Strength: **{max_act:.4f}**"
+            act_str = (
+                f"Peak: **{max_act:.4f}** | Mean: **{mean_act:.4f}** | "
+                f"Active on **{p_count}/196 patches** ({p_count/196:.1%}) | "
+                f"Argmax: **Patch #{peak_idx}** (Row {peak_row + 1}/14, Col {peak_col + 1}/14)"
+            )
         else:
-            act_str = "Inactive on this image (Peak Strength: 0.0000; 0/196 patches)"
+            act_str = "Inactive on this image (Peak Strength: 0.0000 across all 196 patches)"
 
-        curated_tag = "⭐ Validated Research Candidate" if feat_info.get("is_curated") else "Discovered Dictionary Feature"
+        curated_tag = "⭐ Validated Research Candidate" if feat_info.get("is_curated") else "Discovered Dictionary Atom"
 
         return (
-            f"#### Feature #{feature_id} Specification ({curated_tag})\n"
-            f"- **Tentative Hypothesis / Interpretation**: **{feat_info['label']}**\n"
-            f"- **Associated Category**: `{feat_info.get('class_name', 'N/A')}`\n"
-            f"- **Image Activation**: {act_str}\n"
+            f"#### Feature #{feature_id} Quantitative Inspection ({curated_tag})\n"
+            f"- **Hypothesis / Semantic Label**: **{feat_info['label']}**\n"
+            f"- **Associated ImageNet Category**: `{feat_info.get('class_name', 'N/A')}`\n"
+            f"- **Activation Statistics**: {act_str}\n"
             f"- **Spatial Localization**: {loc_res['spatial_description']}\n"
-            f"- **Historical Benchmark Finding**: {feat_info.get('causal_effect_status', 'Untested in cohort benchmark')}\n"
+            f"- **Empirical Benchmark Finding**: {feat_info.get('causal_effect_status', 'Untested in cohort benchmark')}\n"
             f"- **Interpretability Notes**: {feat_info.get('notes', '')}\n\n"
-            f"> **Scientific Safeguard**: SAE heatmaps reveal spatial dictionary activations at Block 7. "
-            f"They are distinct from Transformer self-attention routing, and do NOT prove precise pixel causality."
+            f"> 💡 **Scientific Grounding Notice**: SAE features are learned unsupervised dictionary atoms capturing "
+            f"Block 7 residual directions. Many features naturally activate on background context (e.g. grass, sky, ground, "
+            f"or indoor wallpaper) or high-frequency textures rather than object boundaries. This is expected model behavior, "
+            f"not an object segmentation error."
         )
 
 
@@ -565,17 +575,22 @@ def build_app(service: Optional[ModelService] = None) -> gr.Blocks:
         # Step 3: Understand Where the Feature Activates
         # -------------------------------------------------------------
         gr.Markdown("## Step 3 — Understand Where the Feature Activates (14×14 Spatial Heatmap)")
+        gr.Markdown(
+            "Every token in ViT Block 7 corresponds to an exact 16×16 image patch (14×14 grid = 196 tokens). "
+            "The **left panel** displays the transparent overlay on the 224×224 input with an activation colorbar in real SAE units; "
+            "the **right panel** displays the genuinely discrete 14×14 patch grid with nearest-neighbor interpolation, gridlines, and numeric colorbar."
+        )
 
         with gr.Row():
             with gr.Column(scale=6):
                 heatmap_overlay = gr.Image(
-                    label="14×14 Activation Heatmap Overlaid on Input (Peak Patch Highlighted in Yellow)",
-                    height=280
+                    label="Transparent Overlay on 224×224 Input (with Numeric Colorbar & Peak Box)",
+                    height=300
                 )
             with gr.Column(scale=6):
                 heatmap_raw = gr.Image(
-                    label="Raw 14×14 Sparse Activation Grid",
-                    height=280
+                    label="Genuinely Discrete 14×14 Patch Grid (Nearest-Neighbor, Ticks & Colorbar)",
+                    height=300
                 )
 
         feature_info_md = gr.Markdown(
