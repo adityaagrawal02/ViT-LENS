@@ -68,9 +68,14 @@ class FeatureLocalizer:
             feat_acts = z_topk[:, feature_id].cpu().numpy()  # [196]
             max_act = float(np.max(feat_acts))
             mean_act = float(np.mean(feat_acts))
-            peak_idx = int(np.argmax(feat_acts))
-            peak_row = peak_idx // self.grid_size
-            peak_col = peak_idx % self.grid_size
+            if max_act > 0.0:
+                peak_idx = int(np.argmax(feat_acts))
+                peak_row = peak_idx // self.grid_size
+                peak_col = peak_idx % self.grid_size
+            else:
+                peak_idx = None
+                peak_row = None
+                peak_col = None
 
             heatmap_14x14 = feat_acts.reshape(self.grid_size, self.grid_size)
 
@@ -151,7 +156,7 @@ class FeatureLocalizer:
             peak_col=peak_col if max_act > 0 else None
         )
 
-        if max_act > 0.0:
+        if max_act > 0.0 and peak_row is not None and peak_col is not None and peak_idx is not None:
             spatial_desc = (
                 f"Peak Activation: **{max_act:.4f}** at Patch #{peak_idx} "
                 f"(Row {peak_row + 1}/14, Col {peak_col + 1}/14, yellow/black box) | "
@@ -162,8 +167,10 @@ class FeatureLocalizer:
             )
         else:
             spatial_desc = (
-                f"Feature #{feature_id} is **inactive** on this image (Peak: 0.0000 across all 196 patches). "
-                "Because activation f_i = 0, residual causal intervention produces exact zero delta."
+                f"Feature inactive on this image. "
+                f"Peak: **0.0000** across all 196 patches | Active Patches: **0/196** (0.0%). "
+                f"No patch location is activated. No peak bounding box is displayed. "
+                f"Because activation f_i = 0 across all patches, residual causal intervention produces an exact zero-delta no-op."
             )
 
         return {

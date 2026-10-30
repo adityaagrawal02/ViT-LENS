@@ -98,9 +98,14 @@ def direct_research_heatmap(z_topk: torch.Tensor, feature_id: int):
     heatmap_14x14 = feat_acts.reshape(14, 14)
     peak_act = float(np.max(feat_acts))
     active_count = int(np.sum(feat_acts > 0))
-    argmax_idx = int(np.argmax(feat_acts))
-    peak_row = argmax_idx // 14
-    peak_col = argmax_idx % 14
+    if peak_act > 0.0:
+        argmax_idx = int(np.argmax(feat_acts))
+        peak_row = argmax_idx // 14
+        peak_col = argmax_idx % 14
+    else:
+        argmax_idx = None
+        peak_row = None
+        peak_col = None
     return feat_acts, heatmap_14x14, peak_act, active_count, argmax_idx, peak_row, peak_col
 
 
@@ -233,23 +238,31 @@ def run_case_parity_audit(case_name: str,
     col_b = loc_b["peak_col"]
     idx_b = loc_b["peak_patch_idx"]
 
-    # Strict spatial coordinate assertions on both execution paths
-    assert 0 <= row_a < 14, f"Path A peak_row out of bounds: {row_a}"
-    assert 0 <= col_a < 14, f"Path A peak_col out of bounds: {col_a}"
-    assert 0 <= idx_a < 196, f"Path A flat_index out of bounds: {idx_a}"
-    assert idx_a == row_a * 14 + col_a, f"Path A indexing mismatch: {idx_a} != {row_a} * 14 + {col_a}"
-    assert np.isclose(mat_a[row_a, col_a], peak_a), f"Path A matrix at [{row_a}, {col_a}] ({mat_a[row_a, col_a]}) != peak ({peak_a})"
-
-    assert 0 <= row_b < 14, f"Path B peak_row out of bounds: {row_b}"
-    assert 0 <= col_b < 14, f"Path B peak_col out of bounds: {col_b}"
-    assert 0 <= idx_b < 196, f"Path B flat_index out of bounds: {idx_b}"
-    assert idx_b == row_b * 14 + col_b, f"Path B indexing mismatch: {idx_b} != {row_b} * 14 + {col_b}"
-    assert np.isclose(mat_b[row_b, col_b], peak_b), f"Path B matrix at [{row_b}, {col_b}] ({mat_b[row_b, col_b]}) != peak ({peak_b})"
-
     diff_mat = float(np.max(np.abs(mat_a - mat_b)))
     diff_peak = abs(peak_a - peak_b)
     diff_count = abs(count_a - count_b)
-    coord_match = (row_a == row_b) and (col_a == col_b) and (idx_a == idx_b)
+
+    if peak_a > 0.0:
+        # Strict spatial coordinate assertions on both execution paths for active features
+        assert 0 <= row_a < 14, f"Path A peak_row out of bounds: {row_a}"
+        assert 0 <= col_a < 14, f"Path A peak_col out of bounds: {col_a}"
+        assert 0 <= idx_a < 196, f"Path A flat_index out of bounds: {idx_a}"
+        assert idx_a == row_a * 14 + col_a, f"Path A indexing mismatch: {idx_a} != {row_a} * 14 + {col_a}"
+        assert np.isclose(mat_a[row_a, col_a], peak_a), f"Path A matrix at [{row_a}, {col_a}] ({mat_a[row_a, col_a]}) != peak ({peak_a})"
+
+        assert 0 <= row_b < 14, f"Path B peak_row out of bounds: {row_b}"
+        assert 0 <= col_b < 14, f"Path B peak_col out of bounds: {col_b}"
+        assert 0 <= idx_b < 196, f"Path B flat_index out of bounds: {idx_b}"
+        assert idx_b == row_b * 14 + col_b, f"Path B indexing mismatch: {idx_b} != {row_b} * 14 + {col_b}"
+        assert np.isclose(mat_b[row_b, col_b], peak_b), f"Path B matrix at [{row_b}, {col_b}] ({mat_b[row_b, col_b]}) != peak ({peak_b})"
+        coord_match = (row_a == row_b) and (col_a == col_b) and (idx_a == idx_b)
+    else:
+        # For inactive features (peak = 0 across all 196 patches), assert coordinates are strictly None
+        assert row_a is None and col_a is None and idx_a is None, f"Path A coordinates must be None for inactive feature: ({row_a}, {col_a})"
+        assert row_b is None and col_b is None and idx_b is None, f"Path B coordinates must be None for inactive feature: ({row_b}, {col_b})"
+        assert count_a == 0 and count_b == 0, f"Inactive feature must have 0 active patches: {count_a}, {count_b}"
+        coord_match = True
+
     metrics["diff_14x14_matrix"] = diff_mat
     metrics["diff_peak_activation"] = diff_peak
     metrics["coords_match"] = coord_match
@@ -259,12 +272,18 @@ def run_case_parity_audit(case_name: str,
     print(f"  [4] 14x14 Spatial Matrix Max Diff:      {diff_mat:.2e} -> {'PASS' if diff_mat < tol else 'FAIL'}")
     print(f"      Peak Activation:                    Path A={peak_a:.4f}, Path B={peak_b:.4f} (diff: {diff_peak:.2e})")
     print(f"      Active Patches Count:               Path A={count_a}/196, Path B={count_b}/196")
-    print(f"      Argmax Patch Spatial Coordinates:")
-    print(f"        0-indexed array coordinates:      Path A=[row={row_a}, col={col_a}], Path B=[row={row_b}, col={col_b}] (Match: {coord_match})")
-    print(f"        1-indexed human grid:             Path A=(Row {row_a + 1} of 14, Col {col_a + 1} of 14), Path B=(Row {row_b + 1} of 14, Col {col_b + 1} of 14)")
-    print(f"        Flat token sequence index:        Path A=Token #{idx_a} (0..195), Path B=Token #{idx_b} (0..195)")
-    print(f"        Pixel Box in 224x224:             [x0={col_a * 16}, y0={row_a * 16}, x1={(col_a + 1) * 16}, y1={(row_a + 1) * 16}]")
-    print(f"        Index Validity Assertions:        0 <= row < 14: PASS | 0 <= col < 14: PASS | idx == row*14+col: PASS")
+    if peak_a > 0.0:
+        print(f"      Argmax Patch Spatial Coordinates:")
+        print(f"        0-indexed array coordinates:      Path A=[row={row_a}, col={col_a}], Path B=[row={row_b}, col={col_b}] (Match: {coord_match})")
+        print(f"        1-indexed human grid:             Path A=(Row {row_a + 1} of 14, Col {col_a + 1} of 14), Path B=(Row {row_b + 1} of 14, Col {col_b + 1} of 14)")
+        print(f"        Flat token sequence index:        Path A=Token #{idx_a} (0..195), Path B=Token #{idx_b} (0..195)")
+        print(f"        Pixel Box in 224x224:             [x0={col_a * 16}, y0={row_a * 16}, x1={(col_a + 1) * 16}, y1={(row_a + 1) * 16}]")
+        print(f"        Index Validity Assertions:        0 <= row < 14: PASS | 0 <= col < 14: PASS | idx == row*14+col: PASS")
+    else:
+        print(f"      Feature Inactive Status:")
+        print(f"        State:                            Feature inactive on this image (Peak: 0.0000 across all 196 patches; 0/196 active patches)")
+        print(f"        Spatial Argmax / Bounding Box:    None (No patch location is activated; patch [0, 0] is NOT implied)")
+        print(f"        Causal Intervention Behavior:     Strict identity no-op (Zero delta across all patches)")
 
     # -------------------------------------------------------------
     # 5. Causal Interventions at alpha = 0.0, 1.0, 2.0
@@ -402,10 +421,56 @@ def main():
     springer_path = os.path.join(samples_dir, "sample_springer.png")
     retriever_path = os.path.join(samples_dir, "sample_retriever.png")
 
+    # Dynamic feature discovery for Case 3 (Issue 1):
+    # Automatically select an ACTUALLY ACTIVE feature based on the loaded SAE activations for that image.
+    if os.path.exists(retriever_path):
+        print("\n" + "="*75)
+        print("DYNAMIC FEATURE DISCOVERY (Case 3): Selecting Actually Active Feature on Retriever")
+        print("="*75)
+        retriever_img = Image.open(retriever_path)
+        tensor_ret = direct_research_preprocess(retriever_img, vit).to(vit.vit_parameter_device)
+        with torch.no_grad():
+            _, _, patch_acts_ret, _ = direct_research_inference(tensor_ret, vit)
+            z_ret = direct_research_sae_encode(patch_acts_ret.to(sae.W_dec.device), sae)  # [196, d_sae]
+            peak_acts_ret = torch.max(z_ret, dim=0).values  # [d_sae]
+            patch_counts_ret = (z_ret > 0).sum(dim=0)        # [d_sae]
+
+        active_mask = peak_acts_ret > 0.0
+        active_indices = torch.where(active_mask)[0]
+        if len(active_indices) == 0:
+            raise RuntimeError(
+                f"FATAL AUDIT FAILURE: Automatic feature discovery found NO active SAE features on {retriever_path}! "
+                "All 3,072 features have zero peak activation."
+            )
+
+        # Rank all 3,072 features by actual peak activation descending, secondary by active patch count
+        sorted_active = sorted(
+            active_indices.cpu().tolist(),
+            key=lambda fid: (float(peak_acts_ret[fid].item()), int(patch_counts_ret[fid].item())),
+            reverse=True
+        )
+        discovered_fid = int(sorted_active[0])
+        discovered_peak = float(peak_acts_ret[discovered_fid].item())
+        discovered_count = int(patch_counts_ret[discovered_fid].item())
+
+        assert discovered_peak > 0.0, f"Discovered feature #{discovered_fid} must have peak activation > 0"
+        assert discovered_count > 0, f"Discovered feature #{discovered_fid} must have active patches > 0"
+
+        feat_info_disc = service.evidence_service.get_feature_info(discovered_fid)
+        print(f"  [1] Encoded Image Shape:           [196 patch tokens, 3072 SAE dictionary atoms]")
+        print(f"  [2] Total Features Active (> 0):   {len(active_indices)} / 3,072 ({len(active_indices)/3072:.1%})")
+        print(f"  [3] Auto-Selected Top Feature:     Feature #{discovered_fid}")
+        print(f"  [4] Discovered Peak Activation:    {discovered_peak:.4f} (> 0.0)")
+        print(f"  [5] Active Patch Count:            {discovered_count}/196 ({discovered_count/196:.1%})")
+        print(f"  [6] Feature Semantic Label:        '{feat_info_disc['label']}'")
+        print("="*75)
+    else:
+        discovered_fid = 331
+
     cases = [
         ("Case 1: Tench Image / Feature #588 (Class 0: Tench)", fish_path, 588, 0),
         ("Case 2: English Springer / Feature #1453 (Class 217: English Springer)", springer_path, 1453, 217),
-        ("Case 3: Golden Retriever / Discovered Feature (Class 207: Retriever)", retriever_path, 2567, 207),
+        (f"Case 3: Golden Retriever / Discovered Feature #{discovered_fid} (Class 207: Retriever)", retriever_path, discovered_fid, 207),
         ("Case 4: Inactive Feature (Feature #1453 on Tench Image)", fish_path, 1453, 0),
     ]
 

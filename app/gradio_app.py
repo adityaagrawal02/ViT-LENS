@@ -305,8 +305,8 @@ class ViTLensGradioApp:
                 )
             else:
                 summary_md = (
-                    f"⚠️ **Selected Feature #{feature_id} is INACTIVE on this image** (Peak: 0.0000; 0/196 patches). "
-                    f"Intervention multiplier will produce zero logit shift."
+                    f"⚠️ **Feature inactive on this image** (Feature #{feature_id}: Peak 0.0000 across all 196 patches; 0/196 active patches). "
+                    f"No patches activated. Residual causal intervention produces a zero-delta no-op."
                 )
 
             reset_intervene_md = f"Ready to run causal intervention on **Feature #{feature_id}**."
@@ -437,18 +437,18 @@ class ViTLensGradioApp:
         max_act = loc_res["max_activation"]
         p_count = loc_res["active_patch_count"]
         mean_act = loc_res.get("mean_activation", 0.0)
-        peak_row = loc_res.get("peak_row", 0)
-        peak_col = loc_res.get("peak_col", 0)
-        peak_idx = loc_res.get("peak_patch_idx", 0)
+        peak_row = loc_res.get("peak_row")
+        peak_col = loc_res.get("peak_col")
+        peak_idx = loc_res.get("peak_patch_idx")
 
-        if max_act > 0:
+        if max_act > 0 and peak_row is not None and peak_col is not None and peak_idx is not None:
             act_str = (
                 f"Peak: **{max_act:.4f}** | Mean: **{mean_act:.4f}** | "
                 f"Active on **{p_count}/196 patches** ({p_count/196:.1%}) | "
                 f"Argmax: **Patch #{peak_idx}** (Row {peak_row + 1}/14, Col {peak_col + 1}/14)"
             )
         else:
-            act_str = "Inactive on this image (Peak Strength: 0.0000 across all 196 patches)"
+            act_str = "Feature inactive on this image (Peak Strength: 0.0000 across all 196 patches; 0/196 active patches)"
 
         curated_tag = "⭐ Validated Research Candidate" if feat_info.get("is_curated") else "Discovered Dictionary Atom"
 

@@ -63,8 +63,11 @@ def test_spatial_grid_14x14_alignment(mock_vit, mock_sae):
         dummy_img, feature_id=0
     )
     assert heatmap.shape == (14, 14), f"Expected 14x14 heatmap, got {heatmap.shape}"
-    assert peak_row == peak_idx // 14, f"Row {peak_row} does not match peak_idx // 14 ({peak_idx // 14})"
-    assert peak_col == peak_idx % 14, f"Col {peak_col} does not match peak_idx % 14 ({peak_idx % 14})"
+    if max_act > 0.0:
+        assert peak_row == peak_idx // 14, f"Row {peak_row} does not match peak_idx // 14 ({peak_idx // 14})"
+        assert peak_col == peak_idx % 14, f"Col {peak_col} does not match peak_idx % 14 ({peak_idx % 14})"
+    else:
+        assert peak_row is None and peak_col is None and peak_idx is None
 
 
 def test_identity_intervention_exact_zero_diff(mock_vit, mock_sae):

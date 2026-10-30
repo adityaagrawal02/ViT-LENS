@@ -330,7 +330,11 @@ def render_discrete_grid_with_colorbar(heatmap_2d: np.ndarray,
         ax.add_patch(rect_outer)
         ax.add_patch(rect_inner)
 
-    peak_text = f"Peak: {max_val:.2f} (R{peak_row+1}, C{peak_col+1})" if (peak_row is not None and max_val > 0) else "Inactive (0.00)"
+    peak_text = (
+        f"Peak: {max_val:.2f} (R{peak_row+1}, C{peak_col+1})"
+        if (peak_row is not None and max_val > 0.0)
+        else "Feature inactive on this image"
+    )
     ax.set_title(f"{title}\n[{peak_text}]", fontsize=10, fontweight="bold")
     plt.tight_layout()
 
@@ -370,7 +374,11 @@ def render_overlay_with_colorbar(overlay_pil: Image.Image,
     cbar.set_label("SAE Activation (ReLU Units)", fontsize=9, fontweight="bold")
     cbar.ax.tick_params(labelsize=8)
 
-    peak_text = f"Peak: {peak_val:.2f}" if peak_val > 0.0 else "Inactive (0.00)"
+    peak_text = (
+        f"Peak: {peak_val:.2f}"
+        if peak_val > 0.0
+        else "Feature inactive on this image"
+    )
     ax.set_title(f"{title}\n[{peak_text}]", fontsize=10, fontweight="bold")
     plt.tight_layout()
 

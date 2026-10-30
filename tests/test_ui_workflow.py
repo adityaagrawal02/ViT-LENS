@@ -195,10 +195,15 @@ def test_9_heatmap_creation_and_alignment(test_service, sample_image):
     assert loc_res["heatmap_2d"].shape == (14, 14)
     assert loc_res["overlay_image"].size == (224, 224)
     assert loc_res["raw_heatmap"].size == (224, 224)
-    assert 0 <= loc_res["peak_row"] < 14
-    assert 0 <= loc_res["peak_col"] < 14
-    assert loc_res["peak_row"] == loc_res["peak_patch_idx"] // 14
-    assert loc_res["peak_col"] == loc_res["peak_patch_idx"] % 14
+    if loc_res["max_activation"] > 0:
+        assert 0 <= loc_res["peak_row"] < 14
+        assert 0 <= loc_res["peak_col"] < 14
+        assert loc_res["peak_row"] == loc_res["peak_patch_idx"] // 14
+        assert loc_res["peak_col"] == loc_res["peak_patch_idx"] % 14
+    else:
+        assert loc_res["peak_row"] is None
+        assert loc_res["peak_col"] is None
+        assert loc_res["peak_patch_idx"] is None
 
 
 # -----------------------------------------------------------------------------

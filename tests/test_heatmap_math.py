@@ -81,29 +81,32 @@ class TestHeatmapMathematics:
     def test_3_yellow_bounding_box_matches_matrix_argmax(self, mock_sae, vit_wrapper):
         """
         Verify numerically that the bounding box coordinates [x0, y0, x1, y1]
-        strictly correspond to the argmax patch row and column.
+        strictly correspond to the argmax patch row and column for active features.
         """
-        localizer = FeatureLocalizer(mock_sae, vit_wrapper)
+        service = ModelService(device="cpu", vit=vit_wrapper, sae=mock_sae)
         test_img = Image.new("RGB", (224, 224), color=(128, 128, 128))
 
-        res = localizer.localize_and_visualize(test_img, feature_id=100)
+        active_feats = service.get_active_features_on_image(test_img, top_n=5)
+        feat_id = active_feats[0]["feature_id"] if active_feats else 100
+
+        res = service.localize_feature(test_img, feature_id=feat_id)
         heatmap = res["heatmap_2d"]
         peak_idx = res["peak_patch_idx"]
         peak_row = res["peak_row"]
         peak_col = res["peak_col"]
         max_act = res["max_activation"]
 
-        # 1. Bounds and indexing assertions
-        assert 0 <= peak_row < 14, f"peak_row out of bounds: {peak_row}"
-        assert 0 <= peak_col < 14, f"peak_col out of bounds: {peak_col}"
-        assert 0 <= peak_idx < 196, f"peak_patch_idx out of bounds: {peak_idx}"
-        assert peak_idx == peak_row * 14 + peak_col, f"flat_index != row*14+col: {peak_idx} != {peak_row * 14 + peak_col}"
-
-        # 2. Value at [peak_row, peak_col] must equal max_act
-        assert np.isclose(heatmap[peak_row, peak_col], max_act)
-
-        # 3. If feature is active, check pixel coordinates
         if max_act > 0.0:
+            # 1. Bounds and indexing assertions for active feature
+            assert 0 <= peak_row < 14, f"peak_row out of bounds: {peak_row}"
+            assert 0 <= peak_col < 14, f"peak_col out of bounds: {peak_col}"
+            assert 0 <= peak_idx < 196, f"peak_patch_idx out of bounds: {peak_idx}"
+            assert peak_idx == peak_row * 14 + peak_col, f"flat_index != row*14+col: {peak_idx} != {peak_row * 14 + peak_col}"
+
+            # 2. Value at [peak_row, peak_col] must equal max_act
+            assert np.isclose(heatmap[peak_row, peak_col], max_act)
+
+            # 3. Check pixel coordinates
             expected_x0 = peak_col * 16
             expected_y0 = peak_row * 16
             expected_x1 = (peak_col + 1) * 16
@@ -112,6 +115,8 @@ class TestHeatmapMathematics:
             assert 0 <= expected_y0 < 224
             assert expected_x1 == expected_x0 + 16
             assert expected_y1 == expected_y0 + 16
+        else:
+            assert peak_row is None and peak_col is None and peak_idx is None
 
     def test_4_denormalization_accuracy_without_color_shift(self):
         """
@@ -234,4 +239,80 @@ class TestHeatmapMathematics:
         assert "spatial_description" in res
         assert isinstance(res["discrete_grid"], Image.Image)
         assert isinstance(res["overlay_image"], Image.Image)
+
+    def test_9_inactive_feature_localization_has_no_box_and_reports_inactive(self, mock_sae, vit_wrapper):
+        """
+        Issue 2 Regression Test: Inactive Feature Localization.
+        When all 196 patch activations are zero:
+        - Do not display a yellow maximum-activation box.
+        - Show 'Feature inactive on this image'.
+        - Show zero active patches and zero activation.
+        - Do not imply that patch [0,0] is a meaningful activation location (peak_row/peak_col are None).
+        - Keep the causal intervention as a valid no-op.
+        """
+        localizer = FeatureLocalizer(mock_sae, vit_wrapper)
+        # Create an image tensor
+        test_img = Image.new("RGB", (224, 224), color=(0, 0, 0))
+
+        # Manually zero all activations for feature 9999 by computing map with zeroed weights
+        # Or test a feature known to be inactive on this black image
+        service = ModelService(device="cpu", vit=vit_wrapper, sae=mock_sae)
+        active_ids = {f["feature_id"] for f in service.get_active_features_on_image(test_img, top_n=3072)}
+        # Pick any feature ID that did not activate
+        all_ids = set(range(mock_sae.d_sae))
+        inactive_ids = list(all_ids - active_ids)
+        assert len(inactive_ids) > 0, "Expected at least one inactive feature"
+        inactive_fid = inactive_ids[0]
+
+        res = service.localize_feature(test_img, inactive_fid)
+        assert res["max_activation"] == 0.0
+        assert res["mean_activation"] == 0.0
+        assert res["active_patch_count"] == 0
+        assert res["peak_patch_idx"] is None, f"Expected None for peak_patch_idx, got {res['peak_patch_idx']}"
+        assert res["peak_row"] is None, f"Expected None for peak_row, got {res['peak_row']}"
+        assert res["peak_col"] is None, f"Expected None for peak_col, got {res['peak_col']}"
+        assert res["has_activation"] is False
+        assert "Feature inactive on this image" in res["spatial_description"]
+        assert "0/196" in res["spatial_description"]
+
+        # Colorbar figure should have title indicating inactive feature
+        cbar_img = render_discrete_grid_with_colorbar(res["heatmap_2d"], peak_row=None, peak_col=None)
+        assert isinstance(cbar_img, Image.Image)
+
+        # Causal intervention must be a valid no-op
+        interv_res = service.run_causal_intervention(test_img, inactive_fid, strength=0.0)
+        assert interv_res["is_feature_active"] is False
+        assert interv_res["max_feature_activation"] == 0.0
+        assert np.isclose(interv_res["logit_diff"], 0.0, atol=1e-5)
+
+    def test_10_automatic_feature_discovery_selects_active_feature(self, mock_sae, vit_wrapper):
+        """
+        Issue 1 Regression Test: Automatic Feature Discovery.
+        1. Encodes the image through the SAE.
+        2. Ranks features by actual peak activation.
+        3. Selects a feature with activation > 0.
+        4. Verifies peak activation > 0 and active patch count > 0.
+        5. Verifies that localization outputs valid non-None spatial coordinates.
+        """
+        service = ModelService(device="cpu", vit=vit_wrapper, sae=mock_sae)
+        test_img = Image.new("RGB", (224, 224), color=(128, 180, 220))
+
+        active_feats = service.get_active_features_on_image(test_img, top_n=10)
+        assert len(active_feats) > 0, "Expected active features to be discovered on sample image"
+
+        top_feat = active_feats[0]
+        assert top_feat["peak_activation"] > 0.0, f"Peak activation must be > 0, got {top_feat['peak_activation']}"
+        assert top_feat["active_patch_count"] > 0, f"Active patch count must be > 0, got {top_feat['active_patch_count']}"
+
+        # Localize this discovered active feature
+        loc_res = service.localize_feature(test_img, top_feat["feature_id"])
+        assert loc_res["max_activation"] > 0.0
+        assert loc_res["has_activation"] is True
+        assert loc_res["peak_row"] is not None
+        assert loc_res["peak_col"] is not None
+        assert loc_res["peak_patch_idx"] is not None
+        assert 0 <= loc_res["peak_row"] < 14
+        assert 0 <= loc_res["peak_col"] < 14
+        assert loc_res["peak_patch_idx"] == loc_res["peak_row"] * 14 + loc_res["peak_col"]
+
 
