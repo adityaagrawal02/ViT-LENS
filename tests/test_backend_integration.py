@@ -218,3 +218,48 @@ def test_model_service_smoke(mock_vit, mock_sae):
     res = service.run_causal_intervention(dummy_image, feature_id=5, strength=1.0)
     assert res["feature_id"] == 5
     assert abs(res["logit_diff"]) < 1e-4
+
+
+def test_vit_model_data_config_and_device(mock_vit):
+    """Validate data configuration resolution and parameter device queries."""
+    cfg = mock_vit.get_data_config()
+    assert isinstance(cfg, dict)
+    assert "mean" in cfg and "std" in cfg
+    assert isinstance(mock_vit.vit_parameter_device, torch.device)
+
+
+def test_sae_missing_checkpoint_raises_explicit_error(mock_vit):
+    """Validate that missing SAE checkpoint does not silently run with random weights."""
+    from PIL import Image
+    service = ModelService(
+        device="cpu",
+        vit=mock_vit,
+        sae=None,
+        sae_checkpoint_path="/non_existent_path/fake_checkpoint.pt"
+    )
+    assert not service.is_sae_loaded
+    assert service.sae is None
+
+    dummy_image = Image.new("RGB", (224, 224), color=(50, 100, 150))
+    # get_active_features_on_image returns empty list
+    assert service.get_active_features_on_image(dummy_image) == []
+
+    # localize_feature strictly raises RuntimeError
+    with pytest.raises(RuntimeError, match="SAE checkpoint is not loaded"):
+        service.localize_feature(dummy_image, feature_id=10)
+
+    # run_causal_intervention strictly raises RuntimeError
+    with pytest.raises(RuntimeError, match="SAE checkpoint is not loaded"):
+        service.run_causal_intervention(dummy_image, feature_id=10, strength=0.0)
+
+
+def test_intervention_returns_full_1000_logits(mock_vit, mock_sae):
+    """Validate that run_intervention returns full 1,000-class logit arrays."""
+    intervenor = ResidualPreservingIntervention(mock_vit, mock_sae)
+    dummy_img = torch.randn(1, 3, 224, 224)
+    res = intervenor.run_intervention(dummy_img, feature_id=10, strength_multiplier=0.0)
+
+    assert "orig_logits" in res
+    assert "mod_logits" in res
+    assert len(res["orig_logits"]) == 1000
+    assert len(res["mod_logits"]) == 1000

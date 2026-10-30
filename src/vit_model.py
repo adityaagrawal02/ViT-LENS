@@ -90,7 +90,26 @@ class ViTModelWrapper(nn.Module):
             param.requires_grad = False
 
         self._attach_hook()
+        self.data_config = {}
         self.eval_transform = self._build_eval_transform()
+
+    @property
+    def vit_parameter_device(self) -> torch.device:
+        """Returns the actual device of the underlying model parameters."""
+        return next(self.model.parameters()).device
+
+    def get_data_config(self) -> dict:
+        """Returns the resolved data configuration (mean, std, crop_pct, input_size)."""
+        return self.data_config
+
+    def denormalize_image(self, tensor: torch.Tensor) -> "Image.Image":
+        """
+        Denormalizes an image tensor using this model's exact resolved data configuration.
+        """
+        from src.utils import denormalize_image
+        mean = self.data_config.get("mean", (0.5, 0.5, 0.5))
+        std = self.data_config.get("std", (0.5, 0.5, 0.5))
+        return denormalize_image(tensor, mean=mean, std=std)
 
     def _load_model(self, model_name: str, pretrained: bool, use_torchvision: bool):
         """Loads ViT model from timm or torchvision with reliable fallback."""
@@ -118,15 +137,22 @@ class ViTModelWrapper(nn.Module):
             try:
                 import timm.data
                 config = timm.data.resolve_model_data_config(self.model)
+                self.data_config = dict(config)
                 return timm.data.create_transform(**config, is_training=False)
             except Exception:
                 pass
 
-        # Standard ViT-B/16 evaluation transform
+        # Standard ViT-B/16 AugReg evaluation transform defaults
+        self.data_config = {
+            "mean": (0.5, 0.5, 0.5),
+            "std": (0.5, 0.5, 0.5),
+            "input_size": (3, 224, 224),
+            "interpolation": "bicubic"
+        }
         return transforms.Compose([
             transforms.Resize((224, 224), interpolation=transforms.InterpolationMode.BICUBIC),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
         ])
 
     def get_eval_transform(self):

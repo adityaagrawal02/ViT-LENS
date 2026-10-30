@@ -76,8 +76,20 @@ class ModelService:
 
         self.evidence_service = EvidenceService()
 
+    @property
+    def vit_parameter_device(self) -> torch.device:
+        """Returns actual device of underlying ViT model parameters."""
+        return next(self.vit.model.parameters()).device
+
+    @property
+    def sae_parameter_device(self) -> Optional[torch.device]:
+        """Returns actual device of underlying SAE model parameters if loaded."""
+        if self.sae is not None and self.is_sae_loaded:
+            return next(self.sae.parameters()).device
+        return None
+
     def _load_sae(self):
-        """Attempts to load and validate final SAE checkpoint."""
+        """Attempts to load and validate final SAE checkpoint without silent random fallbacks."""
         if not os.path.exists(self.sae_checkpoint_path):
             self.sae_load_error = (
                 f"Checkpoint file not found: '{self.sae_checkpoint_path}'.\n"
@@ -87,9 +99,7 @@ class ModelService:
                 "Or set the environment variable: VIT_LENS_SAE_CHECKPOINT=<path_to_checkpoint.pt>"
             )
             self.is_sae_loaded = False
-            # Initialize an unweighted SAE architecture so structures remain valid
-            self.sae = TopKSparseAutoencoder(d_in=768, d_sae=3072, top_k=32).to(self.device)
-            self.sae.eval()
+            self.sae = None
             return
 
         try:
@@ -105,8 +115,7 @@ class ModelService:
         except Exception as e:
             self.sae_load_error = f"Failed to load checkpoint '{self.sae_checkpoint_path}': {str(e)}"
             self.is_sae_loaded = False
-            self.sae = TopKSparseAutoencoder(d_in=768, d_sae=3072, top_k=32).to(self.device)
-            self.sae.eval()
+            self.sae = None
 
     def preprocess_image(self, image: Image.Image) -> torch.Tensor:
         """Applies exact timm evaluation transform."""
@@ -156,14 +165,17 @@ class ModelService:
         """
         Encodes all 196 patch tokens through TopK SAE and returns the most strongly
         activating feature IDs across the image, ranked by peak activation and active patch count.
+        Returns empty list if SAE checkpoint is not loaded.
         """
-        if self.sae is None:
+        if self.sae is None or not self.is_sae_loaded:
             return []
 
         tensor = self.preprocess_image(image)
         with torch.no_grad():
             _, _, patch_acts, _ = self.vit(tensor)
-            z_topk, _ = self.sae.encode(patch_acts[0])  # [196, d_sae]
+            # Patch representations on SAE parameter device
+            sae_dev = self.sae_parameter_device or self.device
+            z_topk, _ = self.sae.encode(patch_acts[0].to(sae_dev))  # [196, d_sae]
 
             max_acts, _ = torch.max(z_topk, dim=0)  # [d_sae]
             sum_acts = torch.sum(z_topk, dim=0)      # [d_sae]
@@ -208,8 +220,11 @@ class ModelService:
         """
         Reshapes selected feature's 196 patch activations into 14x14 grid and generates overlays.
         """
-        if self.localizer is None or self.sae is None:
-            raise RuntimeError("SAE is not loaded. Cannot compute feature localization.")
+        if not self.is_sae_loaded or self.localizer is None or self.sae is None:
+            raise RuntimeError(
+                f"Validated SAE checkpoint is not loaded ({self.sae_load_error or 'No checkpoint found'}). "
+                "Mount Google Drive at /content/drive or set VIT_LENS_SAE_CHECKPOINT to the trained final_sae_best.pt."
+            )
 
         if not (0 <= feature_id < self.sae.d_sae):
             raise ValueError(f"Invalid feature ID {feature_id}. Must be between 0 and {self.sae.d_sae - 1}.")
@@ -231,8 +246,11 @@ class ModelService:
         """
         Executes residual-preserving causal intervention using modified forward pass.
         """
-        if self.intervenor is None or self.sae is None:
-            raise RuntimeError("SAE is not loaded. Cannot execute causal intervention.")
+        if not self.is_sae_loaded or self.intervenor is None or self.sae is None:
+            raise RuntimeError(
+                f"Validated SAE checkpoint is not loaded ({self.sae_load_error or 'No checkpoint found'}). "
+                "Mount Google Drive at /content/drive or set VIT_LENS_SAE_CHECKPOINT to the trained final_sae_best.pt."
+            )
 
         if not (0 <= feature_id < self.sae.d_sae):
             raise ValueError(f"Invalid feature ID {feature_id}. Must be between 0 and {self.sae.d_sae - 1}.")

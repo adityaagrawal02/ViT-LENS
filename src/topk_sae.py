@@ -211,5 +211,15 @@ class TopKSparseAutoencoder(nn.Module):
         sae.load_state_dict(clean_state, strict=False)
         sae.to(device)
         sae.eval()
-        sae.normalize_decoder()
+
+        # Verify decoder unit L2 norm without mutating trained weights
+        with torch.no_grad():
+            norms = torch.norm(sae.W_dec.data, p=2, dim=1)
+            max_norm_err = torch.max(torch.abs(norms - 1.0)).item()
+            if max_norm_err > 0.05:
+                import warnings
+                warnings.warn(
+                    f"[TopK SAE] Loaded decoder features deviate from unit norm (max error: {max_norm_err:.4f}).",
+                    UserWarning
+                )
         return sae

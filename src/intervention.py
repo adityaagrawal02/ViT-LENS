@@ -178,5 +178,9 @@ class ResidualPreservingIntervention:
             "orig_top5": torch.topk(orig_probs[0], k=5).indices.cpu().tolist(),
             "mod_top5": torch.topk(mod_probs[0], k=5).indices.cpu().tolist(),
             "orig_top5_probs": torch.topk(orig_probs[0], k=5).values.cpu().tolist(),
-            "mod_top5_probs": torch.topk(mod_probs[0], k=5).values.cpu().tolist()
+            "mod_top5_probs": torch.topk(mod_probs[0], k=5).values.cpu().tolist(),
+            "orig_logits": orig_logits[0].detach().cpu().numpy(),
+            "mod_logits": mod_logits[0].detach().cpu().numpy(),
+            "orig_probs": orig_probs[0].detach().cpu().numpy(),
+            "mod_probs": mod_probs[0].detach().cpu().numpy()
         }

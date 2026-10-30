@@ -93,9 +93,11 @@ class TestHeatmapMathematics:
         peak_col = res["peak_col"]
         max_act = res["max_activation"]
 
-        # 1. Argmax index must equal row * 14 + col
-        assert peak_row == peak_idx // 14
-        assert peak_col == peak_idx % 14
+        # 1. Bounds and indexing assertions
+        assert 0 <= peak_row < 14, f"peak_row out of bounds: {peak_row}"
+        assert 0 <= peak_col < 14, f"peak_col out of bounds: {peak_col}"
+        assert 0 <= peak_idx < 196, f"peak_patch_idx out of bounds: {peak_idx}"
+        assert peak_idx == peak_row * 14 + peak_col, f"flat_index != row*14+col: {peak_idx} != {peak_row * 14 + peak_col}"
 
         # 2. Value at [peak_row, peak_col] must equal max_act
         assert np.isclose(heatmap[peak_row, peak_col], max_act)
@@ -203,7 +205,7 @@ class TestHeatmapMathematics:
         assert res_10["max_activation"] == res_10_again["max_activation"]
         assert res_10["peak_patch_idx"] == res_10_again["peak_patch_idx"]
 
-    def test_8_real_sample_dog_preserves_true_activations(self):
+    def test_8_real_sample_dog_preserves_true_activations(self, mock_sae):
         """
         Verify that running localization on sample_springer.png preserves real model activations
         without artificially forcing or shifting activations onto the dog body.
@@ -212,7 +214,7 @@ class TestHeatmapMathematics:
         if not os.path.exists(springer_path):
             pytest.skip("sample_springer.png not found")
 
-        service = ModelService()
+        service = ModelService(sae=mock_sae)
         img = Image.open(springer_path)
 
         # Localize Feature #1453 (English Springer candidate)
@@ -220,6 +222,9 @@ class TestHeatmapMathematics:
         m = res["heatmap_2d"]
 
         assert m.shape == (14, 14)
+        assert 0 <= res["peak_row"] < 14, f"peak_row out of bounds: {res['peak_row']}"
+        assert 0 <= res["peak_col"] < 14, f"peak_col out of bounds: {res['peak_col']}"
+        assert 0 <= res["peak_patch_idx"] < 196, f"peak_patch_idx out of bounds: {res['peak_patch_idx']}"
         assert res["peak_patch_idx"] == res["peak_row"] * 14 + res["peak_col"]
         assert np.isclose(m[res["peak_row"], res["peak_col"]], res["max_activation"])
 
